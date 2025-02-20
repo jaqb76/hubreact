@@ -1,4 +1,3 @@
-// Debugowanie LDAP
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   
@@ -10,7 +9,6 @@ app.post('/api/auth/login', async (req, res) => {
 
   try {
     await new Promise((resolve, reject) => {
-      // Najpierw bindujemy konto serwisowe
       ldapClient.bind(process.env.LDAP_SERVICE_DN, process.env.LDAP_SERVICE_PASSWORD, (err) => {
         if (err) {
           console.error('Service bind error:', err);
@@ -20,53 +18,71 @@ app.post('/api/auth/login', async (req, res) => {
         
         console.log('Service account bound successfully');
         
-        // Teraz szukamy użytkownika
+        // Zmieniony filtr na sAMAccountName
         const searchOptions = {
           scope: 'sub',
-          filter: `(uid=${username})`
+          filter: `(&(objectClass=user)(sAMAccountName=${username}))`,
+          attributes: ['dn', 'displayName', 'mail', 'thumbnailPhoto', 'sAMAccountName']
         };
         
-        ldapClient.search(process.env.LDAP_BASE_DN, searchOptions, (err, res) => {
-          if (err) {
-            console.error('Search error:', err);
-            reject(err);
+        console.log('Searching with options:', searchOptions);
+        
+        ldapClient.search(process.env.LDAP_BASE_DN, searchOptions, (searchErr, searchRes) => {
+          if (searchErr) {
+            console.error('Search error:', searchErr);
+            reject(searchErr);
             return;
           }
           
-          let userDN = null;
+          let foundUser = false;
           
-          res.on('searchEntry', (entry) => {
-            console.log('Found user:', entry.object);
-            userDN = entry.object.dn;
-          });
-          
-          res.on('end', () => {
-            if (!userDN) {
-              console.error('User not found');
-              reject(new Error('User not found'));
-              return;
-            }
+          searchRes.on('searchEntry', (entry) => {
+            console.log('Found user entry:', {
+              dn: entry.object.dn,
+              sAMAccountName: entry.object.sAMAccountName,
+              displayName: entry.object.displayName
+            });
+            foundUser = true;
             
-            // Próbujemy bindować znalezione konto użytkownika
-            ldapClient.bind(userDN, password, (err) => {
-              if (err) {
-                console.error('User bind error:', err);
-                reject(err);
+            // Próba bindowania znalezionego użytkownika
+            ldapClient.bind(entry.object.dn, password, (bindErr) => {
+              if (bindErr) {
+                console.error('User bind error:', bindErr);
+                reject(bindErr);
                 return;
               }
               
               console.log('User authenticated successfully');
-              resolve();
+              resolve({
+                username: entry.object.sAMAccountName,
+                displayName: entry.object.displayName,
+                email: entry.object.mail,
+                thumbnail_photo: entry.object.thumbnailPhoto
+              });
             });
+          });
+          
+          searchRes.on('error', (err) => {
+            console.error('Search error event:', err);
+            reject(err);
+          });
+          
+          searchRes.on('end', (result) => {
+            console.log('Search completed with result:', result);
+            if (!foundUser) {
+              reject(new Error('User not found'));
+            }
           });
         });
       });
     });
 
-    // Jeśli dotarliśmy tutaj, użytkownik został pomyślnie uwierzytelniony
+    // Sukces autentykacji
+    const userData = await userPromise;
     res.json({ 
       status: 'success',
-      message: 'Authentication successful'
+      user: userData,
+      token: jwt.sign(userData, process.env.JWT_SECRET, { expiresIn: '24h' })
     });
 
   } catch (error) {
