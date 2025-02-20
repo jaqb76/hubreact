@@ -3,29 +3,43 @@ import React, { createContext, useContext, useState } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext(null);
+axios.defaults.baseURL = 'http://10.156.41.76:3001'; // lub odpowiedni adres backendu
+axios.defaults.withCredentials = true;
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  const login = async (username, password) => {
-    try {
-      const response = await axios.post('http://localhost:3001/api/auth/login', {
-        username,
-        password,
-      });
-      
-      const { user, token } = response.data;
-      setUser(user);
-      setIsAuthenticated(true);
-      localStorage.setItem('token', token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      return true;
-    } catch (error) {
-      console.error('Login failed:', error);
-      return false;
-    }
-  };
+const login = async (username, password) => {
+  try {
+    console.log('Próba logowania:', username); // debug
+    const response = await axios.post('/api/auth/login', {
+      username,
+      password
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 5000 // timeout na 5 sekund
+    });
+    
+    console.log('Odpowiedź z serwera:', response.data); // debug
+    
+    const { user, token } = response.data;
+    setUser(user);
+    setIsAuthenticated(true);
+    localStorage.setItem('token', token);
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    return true;
+  } catch (error) {
+    console.error('Szczegóły błędu:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status
+    });
+    return false;
+  }
+};
 
   const logout = () => {
     setUser(null);
