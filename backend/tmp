@@ -27,3 +27,4 @@ ldapClient.search(process.env.LDAP_BASE_DN, searchOptions, (searchErr, searchRes
     }
   });
 });
+ldapsearch -H ldap://bank.ad.pkobp.pl:389 -D "LDAP_SERVICE_DN" -w "LDAP_SERVICE_PASSWORD" -b "dc=bank,dc=ad,dc=pkobp,dc=pl" "(&(objectClass=user)(sAMAccountName=s1623899))"
