@@ -1,4 +1,4 @@
-// backend/server.js
+const debug = require('debug')('app:auth');
 const express = require('express');
 const cors = require('cors');
 const ldap = require('ldapjs');
@@ -59,14 +59,17 @@ const authenticateToken = (req, res, next) => {
 // Login endpoint
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
+  console.log('Próba logowania dla użytkownika:', username);
 
   try {
-    // Bind to LDAP
+    console.log('Próba połączenia z LDAP...');
     await new Promise((resolve, reject) => {
       ldapClient.bind(`uid=${username},${process.env.LDAP_BASE_DN}`, password, (err) => {
         if (err) {
+          console.error('Błąd bindowania LDAP:', err.message, err.code);
           reject(err);
         } else {
+          console.log('Bindowanie LDAP udane');
           resolve();
         }
       });
@@ -95,7 +98,44 @@ app.post('/api/auth/login', async (req, res) => {
         };
       });
 
-      searchRes.on('end', async () => {
+      // Search for user details
+    const searchOptions = {
+      scope: 'sub',
+      filter: `(uid=${username})`,
+      attributes: ['displayName', 'mail', 'thumbnailPhoto']
+    };
+
+    console.log('Rozpoczynam wyszukiwanie LDAP z opcjami:', JSON.stringify(searchOptions));
+
+    ldapClient.search(process.env.LDAP_BASE_DN, searchOptions, (err, searchRes) => {
+      if (err) {
+        console.error('Błąd wyszukiwania LDAP:', err);
+        return res.status(500).json({ error: 'LDAP search failed', details: err.message });
+      }
+
+      let userData = {};
+
+      searchRes.on('searchEntry', (entry) => {
+        console.log('Znaleziono wpis LDAP:', entry.object);
+        userData = {
+          username,
+          displayName: entry.object.displayName,
+          email: entry.object.mail,
+          thumbnail_photo: entry.object.thumbnailPhoto
+        };
+      });
+
+      searchRes.on('error', (err) => {
+        console.error('Błąd podczas wyszukiwania:', err);
+      });
+
+      searchRes.on('end', async (result) => {
+        console.log('Zakończono wyszukiwanie LDAP z wynikiem:', result);
+        if (!userData.username) {
+          console.error('Nie znaleziono użytkownika w LDAP');
+          return res.status(404).json({ error: 'User not found in LDAP' });
+        }
+
         // Save or update user in PostgreSQL
         const query = `
           INSERT INTO users (username, display_name, email, thumbnail_photo)
@@ -109,27 +149,45 @@ app.post('/api/auth/login', async (req, res) => {
         `;
 
         try {
-          await pool.query(query, [
+          console.log('Próba zapisu do bazy PostgreSQL');
+          const dbResult = await pool.query(query, [
             userData.username,
             userData.displayName,
             userData.email,
             userData.thumbnail_photo
           ]);
+          console.log('Zapisano do bazy PostgreSQL:', dbResult.rows[0]);
 
           const token = jwt.sign(userData, process.env.JWT_SECRET, { expiresIn: '24h' });
           res.json({ user: userData, token });
         } catch (error) {
-          console.error('Database error:', error);
-          res.status(500).json({ error: 'Database error' });
+          console.error('Błąd bazy danych:', error);
+          res.status(500).json({ error: 'Database error', details: error.message });
         }
       });
     });
   } catch (error) {
-    console.error('LDAP authentication failed:', error);
-    res.status(401).json({ error: 'Authentication failed' });
+    console.error('Błąd autentykacji LDAP:', error);
+    res.status(401).json({ 
+      error: 'Authentication failed', 
+      details: error.message,
+      code: error.code 
+    });
   }
 });
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+  next();
+});
 
+// Dodaj obsługę błędów
+app.use((err, req, res, next) => {
+  console.error('Nieobsłużony błąd:', err);
+  res.status(500).json({ 
+    error: 'Internal server error', 
+    details: err.message 
+  });
+});
 // Protected route example
 app.get('/api/profile', authenticateToken, (req, res) => {
   res.json(req.user);
