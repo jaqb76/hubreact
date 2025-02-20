@@ -1,0 +1,79 @@
+// Debugowanie LDAP
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  
+  console.log('Próba logowania:', {
+    username,
+    ldapUrl: process.env.LDAP_URL,
+    baseDN: process.env.LDAP_BASE_DN
+  });
+
+  try {
+    await new Promise((resolve, reject) => {
+      // Najpierw bindujemy konto serwisowe
+      ldapClient.bind(process.env.LDAP_SERVICE_DN, process.env.LDAP_SERVICE_PASSWORD, (err) => {
+        if (err) {
+          console.error('Service bind error:', err);
+          reject(err);
+          return;
+        }
+        
+        console.log('Service account bound successfully');
+        
+        // Teraz szukamy użytkownika
+        const searchOptions = {
+          scope: 'sub',
+          filter: `(uid=${username})`
+        };
+        
+        ldapClient.search(process.env.LDAP_BASE_DN, searchOptions, (err, res) => {
+          if (err) {
+            console.error('Search error:', err);
+            reject(err);
+            return;
+          }
+          
+          let userDN = null;
+          
+          res.on('searchEntry', (entry) => {
+            console.log('Found user:', entry.object);
+            userDN = entry.object.dn;
+          });
+          
+          res.on('end', () => {
+            if (!userDN) {
+              console.error('User not found');
+              reject(new Error('User not found'));
+              return;
+            }
+            
+            // Próbujemy bindować znalezione konto użytkownika
+            ldapClient.bind(userDN, password, (err) => {
+              if (err) {
+                console.error('User bind error:', err);
+                reject(err);
+                return;
+              }
+              
+              console.log('User authenticated successfully');
+              resolve();
+            });
+          });
+        });
+      });
+    });
+
+    // Jeśli dotarliśmy tutaj, użytkownik został pomyślnie uwierzytelniony
+    res.json({ 
+      status: 'success',
+      message: 'Authentication successful'
+    });
+
+  } catch (error) {
+    console.error('Authentication error:', error);
+    res.status(401).json({ 
+      error: 'Authentication failed',
+      details: error.message 
+    });
+  }
+});
