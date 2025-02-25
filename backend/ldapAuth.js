@@ -106,9 +106,10 @@ router.post('/login', async (req, res) => {
       filter: searchOptions.filter,
       attributes: searchOptions.attributes
     }));
+    const escapedUsername = ldap.escapeLDAPFilterValue(username);
     const searchOptions = {
       scope: 'sub',
-      filter: `(&(objectClass=user)(sAMAccountName=${username}))`,
+      filter: `(&(objectClass=user)(sAMAccountName=${escapedUsername}))`,
       attributes: [ 'displayName', 'mail', 'thumbnailPhoto', 'sAMAccountName', 'memberOf']
     };
 
