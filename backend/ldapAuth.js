@@ -89,13 +89,23 @@ const sanitizeString = (str) => {
 router.post('/login', async (req, res) => {
   const { username, password } = req.body;
   console.log(`Received login request for username: ${username}`);
+  console.log('Environment variables loaded:');
+  console.log('LDAP_URL:', process.env.LDAP_URL);
+  console.log('LDAP_BASE_DN:', process.env.LDAP_BASE_DN);
+  console.log('LDAP_USERNAME is set:', !!process.env.LDAP_USERNAME);
+  console.log('LDAP_PASSWORD is set:', !!process.env.LDAP_PASSWORD);
 
   ldapClient.bind(process.env.LDAP_USERNAME, process.env.LDAP_PASSWORD, (err) => {
     if (err) {
       console.error('LDAP bind failed:', err);
       return res.status(500).send('LDAP bind failed');
     }
-
+    console.log('LDAP service account bind successful');
+    console.log('Search options:', JSON.stringify({
+      scope: searchOptions.scope,
+      filter: searchOptions.filter,
+      attributes: searchOptions.attributes
+    }));
     const searchOptions = {
       scope: 'sub',
       filter: `(&(objectClass=user)(sAMAccountName=${username}))`,
@@ -107,13 +117,19 @@ router.post('/login', async (req, res) => {
         console.error('LDAP search failed:', err);
         return res.status(500).send('LDAP search failed');
       }
-
+      console.log('Starting search with base DN:', process.env.LDAP_BASE_DN);
+      console.log('Search filter:', searchOptions.filter);
+      let userEntryFound = false;
       let userEntry = null;
       searchRes.on('searchEntry', (entry) => {
+        userEntryFound = true;
+        console.log('Found entry DNs:', entry.object.dn);
         userEntry = entry;
       });
 
       searchRes.on('end', async (result) => {
+        console.log('Search ended, entries found:', userEntryFound);
+        console.log('Search result status:', result.status);
         if (!userEntry) {
           console.log('User not found in LDAP:', username);
           return res.status(401).send('User not found');
