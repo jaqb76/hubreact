@@ -1,7 +1,7 @@
 const webpack = require('webpack');
 
 module.exports = function override(config) {
-  // Sprawdź, czy resolve i fallback istnieją
+  // Upewnij się, że resolve i fallback istnieją
   if (!config.resolve) {
     config.resolve = {};
   }
@@ -9,27 +9,25 @@ module.exports = function override(config) {
     config.resolve.fallback = {};
   }
   
-  // Dodaj fallbacki
-  Object.assign(config.resolve.fallback, {
-    stream: require.resolve("stream-browserify"),
-    process: require.resolve("process/browser"),
-    buffer: require.resolve("buffer"),
-    util: require.resolve("util"),
-    assert: require.resolve("assert"),
-    path: require.resolve("path-browserify"),
-    os: require.resolve("os-browserify/browser"),
-    zlib: require.resolve("browserify-zlib"),
-    crypto: false,
-    fs: false
-  });
+  // Dodaj odpowiednie fallbacki
+  config.resolve.fallback = {
+    ...config.resolve.fallback,
+    process: require.resolve('process/browser')
+  };
   
-  // Dodaj pluginy
-  config.plugins = (config.plugins || []).concat([
+  // Dodaj ProvidePlugin aby udostępnić 'process' globalnie
+  config.plugins = [
+    ...config.plugins,
     new webpack.ProvidePlugin({
-      process: ["process/browser"],
-      Buffer: ["buffer", "Buffer"]
+      process: 'process/browser'
     })
-  ]);
+  ];
+  
+  // Dodaj alias dla 'process/browser'
+  if (!config.resolve.alias) {
+    config.resolve.alias = {};
+  }
+  config.resolve.alias['process/browser'] = 'process/browser';
   
   return config;
 };
